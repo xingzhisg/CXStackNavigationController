@@ -1,0 +1,23 @@
+CXStackNavigationController is a replacement for UINavigationController.
+
+On iPad, CXStackNavigationController presents a "Twitter for iPad" or "MyPad" like push and pop behavior to its stacked view controllers.
+
+Usage:
+
+When alloc a CXNavigationController, use -(id)initWithRootViewController:
+
+like UIViewControllers in the UINavigationController's stack, you can easily push in and pop out a detailedViewcontroller from a UIViewController in the stack by using:
+
+#import "CXStackNavigationController.h"
+#import "UIViewController+Stack.h"
+
+// push at the end
+[self.stackViewController pushViewController:detailedController animated:YES];
+
+// push in the middle of the statck
+[self.stackViewController pushViewController:detailedController byDismissingViewControllersBeyond:self animated:YES];
+
+// pop
+[self.stackViewController popViewControllerWithAnimation:SLIDE_HORIZONAL];
+
+
