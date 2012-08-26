@@ -44,29 +44,32 @@
 	self.menuList = [NSArray arrayWithObjects:@"Row 1", @"Row 2", @"Row 3", @"Row 4", @"Row 5", nil];
 }
 
-
-/*
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
-//	NSLog(@"view Will Appear \t %@", self);
+	NSLog(@"view Will Appear \t %@", self);
 }
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
-//	NSLog(@"view did Appear \t %@", self);
+	NSLog(@"view did Appear \t %@", self);
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
-//	NSLog(@"view Will disappear \t %@", self);
+	NSLog(@"view Will disappear \t %@", self);
 }
 
 - (void)viewDidDisappear:(BOOL)animated {
     [super viewDidDisappear:animated];
-//	NSLog(@"view did disappear \t %@", self);
+	NSLog(@"view did disappear \t %@", self);
 }
 
-*/
+
+- (void) handleSwipeToRightEvent {
+    NSLog(@"swipe to right detected %@", self);
+    [self.stackNavigationController popViewControllerWithAnimation:SLIDE_HORIZONAL];
+}
+
 
 - (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)interfaceOrientation {
     // Override to allow orientations other than the default portrait orientation.
@@ -179,7 +182,7 @@
 
 
 - (void)dealloc {
-//	NSLog(@"dealloc a myviewcontroller");
+	NSLog(@"dealloc a myviewcontroller %@ %@", self.view.superview, self);
 	self.menuList = nil;
     [super dealloc];
 }

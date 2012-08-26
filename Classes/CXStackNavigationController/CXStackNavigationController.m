@@ -9,7 +9,6 @@
 //	Known Issues
 //	1. at memory warning we nil out the viewcontrollers' in-visible views - thus losing the stacks vision for intermediate viewcontrollers
 //	2. One needs to implement the swipeGestureRecognizer.delegate to avoid conflicts with other recognizers. In most cases, this should be done in the topViewController
-//	3. shadow effects isn't perfect, especially for UITableViewController (when scroll it down).
 //
 //  Possible enhancement
 //  1. bouncing effects can be implemented via a UIPanGestureRecognizer instead of UISwipeGetureRecognizer
@@ -17,10 +16,13 @@
 //
 
 #import "CXStackNavigationController.h"
+#import <QuartzCore/QuartzCore.h>
 #import "UIViewController+Stack.h"
 
 @interface CXStackNavigationController ()
+@property(nonatomic, retain) UISwipeGestureRecognizer * swipeGestureRecognizer;
 @property(nonatomic, retain) UIViewController * rootViewController;
+@property(nonatomic, retain) NSMutableDictionary * containViews;
 
 - (UIViewController*) topIntermediateViewController;
 
@@ -34,6 +36,11 @@
 @synthesize viewControllers = _viewControllers;
 @synthesize rootViewController = _rootViewController;
 @synthesize swipeGestureRecognizer = _swipeGestureRecognizer;
+@synthesize containViews = _containViews;
+@synthesize shadowColor = _shadowColor;
+@synthesize shadowRadius = _shadowRadius;
+
+static BOOL isiOS5OrHigher = NO;
 
 - (void)didReceiveMemoryWarning
 {
@@ -43,9 +50,14 @@
     // Release any cached data, images, etc that aren't in use.
 	for (int i = 0; i < ((int)[self.viewControllers count])-2; ++i) {
 		UIViewController * aViewcController = [self.viewControllers objectAtIndex:i];
-		[aViewcController.view removeFromSuperview];
-		aViewcController.view = nil;
-		[aViewcController viewDidUnload];
+        
+        if (aViewcController.isViewLoaded) {
+            [aViewcController.view removeFromSuperview];
+            aViewcController.view = nil;
+            [aViewcController viewDidUnload];
+            
+            [self clearContainerForViewController:aViewcController];
+        }
 	}
 }
 
@@ -55,12 +67,14 @@
     // Release any retained subviews of the main view.
     // e.g. self.myOutlet = nil;
 	self.swipeGestureRecognizer = nil;
-
+    
 	for (int i = 0; i < [self.viewControllers count]; ++i) {
 		UIViewController * aViewcController = [self.viewControllers objectAtIndex:i];
 		[aViewcController.view removeFromSuperview];
 		aViewcController.view = nil;
 		[aViewcController viewDidUnload];
+        
+        [self clearContainerForViewController:aViewcController];
 	}
 	[self.rootViewController.view removeFromSuperview];
 	self.rootViewController.view = nil;
@@ -73,6 +87,10 @@
     self.rootViewController = nil;
 	
 	self.viewControllers = nil;
+    
+    self.containViews = nil;
+
+    self.shadowColor = nil;
     
     [super dealloc];
 }
@@ -96,6 +114,12 @@
         self.rootViewController = rootViewController_;
 		self.rootViewController.stackNavigationController = self;
         self.viewControllers = [NSMutableArray array];
+        self.containViews = [NSMutableDictionary dictionary];
+        
+        isiOS5OrHigher = ([[[UIDevice currentDevice] systemVersion] floatValue] >= 5.0);
+        
+        self.shadowColor = [UIColor grayColor];
+        self.shadowRadius = 4.f;
     }
     return self;
 }
@@ -106,21 +130,41 @@
     [super viewDidLoad];
     [self.navigationController setNavigationBarHidden:YES];
 	
-    self.rootViewController.view.frame = self.view.bounds;// [self frameForRootView];
+    self.rootViewController.view.frame = self.view.bounds;
+    [self.rootViewController viewWillAppear:NO];
     [self.view addSubview:self.rootViewController.view];
-	
-	// reload the topViewController.view
-	UIViewController * topViewController = [self topViewController];
-	[topViewController.view setFrame:[self frameForTopView]];
-	[self.view addSubview:topViewController.view];
-	
-	// reload the topIntermediateController.view
-	UIViewController * topIntermediateController = [self topIntermediateViewController];
-	[topIntermediateController.view setFrame:[self frameForTopIntermediateViews]];
-	[self.view insertSubview:topIntermediateController.view belowSubview:topViewController.view];
+    [self.rootViewController viewDidAppear:NO];
+    
+    // reload the topIntermediateController.view
+    UIViewController * topIntermediateController = [self topIntermediateViewController];
+    [topIntermediateController viewWillAppear:NO];
+    [topIntermediateController viewWillBecomeTopIntermediate:NO];
+    
+    UIView * container = [self containerForViewController:topIntermediateController];
+    [container setFrame:[self frameForTopIntermediateViews]];
+    [topIntermediateController.view setFrame:container.bounds];
+    [self.view addSubview:container];
+    [container addSubview:topIntermediateController.view];
+    
+    [topIntermediateController viewDidBecomeTopIntermediate:NO];
+    [topIntermediateController viewDidAppear:NO];
+    
+    // reload the topViewController.view
+    UIViewController * topViewController = [self topViewController];
+    [topViewController viewWillAppear:NO];
+    [topViewController viewWillBecomeTop:NO];
+    
+    container = [self containerForViewController:topViewController];
+    [container setFrame:[self frameForTopView]];
+    [topViewController.view setFrame:container.bounds];
+    [self.view addSubview:container];
+    [container addSubview:topViewController.view];
+    
+    [topViewController viewDidBecomeTop:NO];
+    [topViewController viewDidAppear:NO];
 	
 	// swipe gesture recognizer
-	UISwipeGestureRecognizer * swipeGesture = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(handleSwipe:)];
+	UISwipeGestureRecognizer * swipeGesture = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(handleGestureSwipeToRight:)];
 	swipeGesture.direction = UISwipeGestureRecognizerDirectionRight;
 	[self.view addGestureRecognizer:swipeGesture];
 	self.swipeGestureRecognizer = swipeGesture;
@@ -138,22 +182,86 @@
 	[super willAnimateRotationToInterfaceOrientation:toInterfaceOrientation duration:duration];
 	
 	self.rootViewController.view.frame = self.view.bounds;
+    
+    // Release any cached data, images, etc that aren't in use.
+	for (int i = 0; i < ((int)[self.viewControllers count])-2; ++i) {
+		UIViewController * aViewcController = [self.viewControllers objectAtIndex:i];
+        
+        if (aViewcController.isViewLoaded) {
+            [aViewcController.view removeFromSuperview];
+            aViewcController.view = nil;
+            [aViewcController viewDidUnload];
+            [self clearContainerForViewController:aViewcController];
+        }
+	}
+    
 	for (int i = 0; i < ((int)[self.viewControllers count])-1; ++i) {
 		UIViewController * aViewcController = [self.viewControllers objectAtIndex:i];
-		CGRect rect = aViewcController.view.frame;
+        if (!aViewcController.isViewLoaded) continue;
+        
+        UIView * v = [self containerForViewController:aViewcController];
+		CGRect rect = v.frame;
 		rect.size.height = self.view.bounds.size.height;
-		aViewcController.view.frame = rect;
+        v.frame = rect;
 	}
-	[[self topViewController].view setFrame:[self frameForTopView]];
+    
+    [[self containerForViewController:self.topViewController] setFrame:[self frameForTopView]];
+    [self updateStackShadowsIfNeeded];
+}
+
+////////////////////////////////////
+// container views
+////////////////////////////////////
+
+- (UIView*) containerForViewController:(UIViewController*)viewController {
+    if (viewController == nil)
+        return nil;
+    
+    UIView * v = [self.containViews objectForKey:[NSValue valueWithPointer:viewController]];
+    if (v != nil) return v;
+    
+    v = [[[UIView alloc] initWithFrame:CGRectZero] autorelease];
+    [self.containViews setObject:v forKey:[NSValue valueWithPointer:viewController]];
+    
+    return v;
+}
+
+- (void) clearContainerForViewController:(UIViewController*)viewController {
+    if (viewController == nil) return;
+    
+    NSValue * key = [NSValue valueWithPointer:viewController];
+    UIView * v = [self.containViews objectForKey:key];
+    [v removeFromSuperview];
+    [self.containViews removeObjectForKey:key];
 }
 
 ////////////////////////////////////
 // swipe events
 ////////////////////////////////////
 
-- (void) handleSwipe:(UISwipeGestureRecognizer*)gesture {
-//	NSLog(@"swipe right detected");
-	[self popViewControllerWithAnimation:SLIDE_HORIZONAL];
+// @Override
+- (UIViewController*) swipeToRightTest {
+    UIViewController * v = [super swipeToRightTest];
+    if (v == self) {
+        // no modalviewcontroller, or modaviewcontroller does not consume swipe events
+        for (int i = [self.viewControllers count] - 1; i >= 0 ; --i) {
+            v = [[self.viewControllers objectAtIndex:i] swipeToRightTest];
+            if (v != nil) { return v; }
+        }
+        v = nil;
+    }
+    return v;
+}
+
+// @Override
+- (void) handleSwipeToRightEvent {
+    UIViewController * v = [self swipeToRightTest];
+    
+    if (v && (v != self)) [v handleSwipeToRightEvent];
+}
+
+- (void) handleGestureSwipeToRight:(UISwipeGestureRecognizer*)gesture {
+    [self handleSwipeToRightEvent];
 }
 
 ////////////////////////////////////
@@ -183,20 +291,22 @@
 // customized stack views
 ////////////////////////////////////////
 
-#define LEFT_SHADOW_TAG 142857142
-
 - (void) updateStackShadowForViewController:(UIViewController*)aViewController {
-	[[aViewController view] setClipsToBounds:NO];
-	UIImageView * shadowView = (UIImageView*) [[aViewController view] viewWithTag:LEFT_SHADOW_TAG];
-	if (!shadowView) {
-		UIImageView * shadowView = [[UIImageView alloc] initWithImage:[UIImage imageNamed:@"shadow_left.png"]];
-		shadowView.frame = CGRectMake(-8, 0, 8, [aViewController view].frame.size.height);
-		shadowView.contentMode = UIViewContentModeScaleToFill;
-		shadowView.autoresizingMask = UIViewAutoresizingFlexibleHeight;
-		shadowView.tag = LEFT_SHADOW_TAG;
-		[aViewController.view addSubview:shadowView];
-		[shadowView release];
-	}
+	/*
+	 * Create a fancy shadow aroung the viewController.
+	 *
+	 * Note: UIBezierPath needed because shadows are evil. If you don't use the path, you might not
+	 * not notice a difference at first, but the keen eye will (even on an iPhone 4S) observe that
+	 * the interface rotation _WILL_ lag slightly and feel less fluid than with the path.
+	 */
+    UIView * v = [self containerForViewController:aViewController];
+	UIBezierPath *shadowPath = [UIBezierPath bezierPathWithRect:v.bounds];
+	v.layer.masksToBounds = NO;
+	v.layer.shadowColor = [UIColor grayColor].CGColor;
+	v.layer.shadowOffset = CGSizeMake(0.0f, 0.0f);
+	v.layer.shadowOpacity = 1.0f;
+	v.layer.shadowRadius = self.shadowRadius;
+	v.layer.shadowPath = shadowPath.CGPath;
 }
 
 - (void) updateStackShadowsIfNeeded {
@@ -218,54 +328,123 @@
     return [self.viewControllers lastObject];
 }
 
+
+////////////////////////////////////////
+// push and pop
+////////////////////////////////////////
+
+static const CGFloat animationDuration = 0.3f;
+static const CGFloat animationEndAlpha = 0.5f;
+
 - (void) pushViewController:(UIViewController*)detailedViewController animated:(BOOL)animated {
     [self pushViewController:detailedViewController byDismissingViewControllersBeyond:nil animated:animated];
 }
 
 - (void) pushViewController:(UIViewController*)detailedViewController byDismissingViewControllersBeyond:(UIViewController*)parentViewController animated:(BOOL)animated {
+        
     detailedViewController.stackNavigationController = self;
     
-    CGRect newRect = [self frameForTopView];	
-    newRect.origin.x = self.view.bounds.size.width;
-    detailedViewController.view.frame = newRect;
-	
 	// viewWillDisappear
-	UIViewController * prevTopIntermediateViewController = [self topIntermediateViewController];
-	[prevTopIntermediateViewController viewWillDisappear:NO];
+	UIViewController * prevTopIntermediateViewController = [[self topIntermediateViewController] retain];
+	UIViewController * prevTopViewController = [[self topViewController] retain];
 	
-	// viewWillAppear
-	[detailedViewController viewWillAppear:animated];
-	
-	// add as subview
-    [self.view addSubview:detailedViewController.view];
-	
+    BOOL isReplacingTop = (parentViewController != nil && parentViewController == prevTopIntermediateViewController); // special handling for replacement of topviewcontroller
+    
     // poping view controllers beyong the parentviewcontroller
     [self popToViewController:parentViewController withAnimation:(animated ? SLIDE_VERTICAL : SLIDE_NONE)];
+        
+    if (isReplacingTop) {
+        // do nothing here
+        [prevTopViewController viewWillResignTop:animated];
+        [prevTopViewController viewWillDisappearWithiOS5Fix:animated];
+    }
+    else if ([self.viewControllers containsObject:prevTopIntermediateViewController]) {  // a simple push without pop anything
+        [prevTopIntermediateViewController viewWillResignTopIntermediate:NO];
+        [prevTopIntermediateViewController viewWillDisappearWithiOS5Fix:NO];
+    }
+    else {  // prev top intermediate was poped;
+        [prevTopIntermediateViewController release], prevTopIntermediateViewController = nil;
+    }
+    
+	// viewWillBecomeTop
+    CGRect newRect = [self frameForTopView];
+    newRect.origin.x = self.view.bounds.size.width;
+    
+    UIView * newTopContainerView = [self containerForViewController:detailedViewController];
+    newTopContainerView.frame = newRect;
+    detailedViewController.view.frame = newTopContainerView.bounds;
 	
+    [detailedViewController viewWillAppearWithiOS5Fix:animated];
+	[detailedViewController viewWillBecomeTop:animated];
+	
+	// add as subview
+    [self.view addSubview:newTopContainerView];
+    [newTopContainerView addSubview:detailedViewController.view];
+    
     // add to viewControllers
     [self.viewControllers addObject:detailedViewController];
 	
     ////////// animations ////////////
     if (animated) {
-        [UIView beginAnimations:@"slide_in" context:nil];
-        [UIView setAnimationDuration:0.4f];
+        [UIView animateWithDuration:animationDuration
+                         animations:^{
+                             // new frame for prev top View
+                             [self containerForViewController:self.topIntermediateViewController].frame = [self frameForTopIntermediateViews];
+                             
+                             // set frame for new top view
+                             newTopContainerView.frame = [self frameForTopView];
+                             
+                             if (isReplacingTop) {
+                                 UIView * v = [self containerForViewController:prevTopViewController];
+                                 CGRect newRect = v.frame;
+                                 newRect.origin.y = self.view.bounds.size.height;
+                                 v.frame = newRect;
+                             }
+                         } completion:^(BOOL finished) {
+                             if (isReplacingTop) {
+                                 [prevTopViewController viewDidResignTop:animated];
+                                 [prevTopViewController viewDidDisappearWithiOS5Fix:animated];
+                                 [prevTopViewController.view removeFromSuperview];
+                                 [self clearContainerForViewController:prevTopViewController];
+                             }
+                             else {
+                                 [prevTopIntermediateViewController viewDidResignTopIntermediate:animated];
+                                 [prevTopIntermediateViewController viewDidDisappearWithiOS5Fix:animated];
+                             }
+                             [prevTopViewController release];
+                             [prevTopIntermediateViewController release];
+                             
+                             [detailedViewController viewDidBecomeTop:animated];
+                             [detailedViewController viewDidAppearWithiOS5Fix:animated];
+                         }];
     }
-    // new frame for prev top View
-	[self topIntermediateViewController].view.frame = [self frameForTopIntermediateViews];
-	
-    // set frame for new top view
-    detailedViewController.view.frame = [self frameForTopView];   
-	
-    if (animated) {
-        [UIView commitAnimations];
-    }
-	
-	// viewDidDisappear
-	[prevTopIntermediateViewController performSelector:@selector(viewDidDisappear:) withObject:(animated ? self : nil) afterDelay:(animated ? 0.41 : 0.01)];
+    else {
+        // new frame for prev top View
+        [self containerForViewController:self.topIntermediateViewController].frame = [self frameForTopIntermediateViews];
+        
+        // set frame for new top view
+        newTopContainerView.frame = [self frameForTopView];
+        
+        // viewDidDisappear
+        if (isReplacingTop) {
+            [prevTopViewController viewDidResignTop:NO];
+            [prevTopViewController viewDidDisappearWithiOS5Fix:NO];
+            [prevTopViewController.view removeFromSuperview];
+            [self clearContainerForViewController:prevTopViewController];
+        }
+        else {
+            [prevTopIntermediateViewController viewDidResignTopIntermediate:NO];
+            [prevTopIntermediateViewController viewDidDisappearWithiOS5Fix:NO];
+        }
+        
+        [prevTopViewController release];
+        [prevTopIntermediateViewController release];
+        
+        // viewDidAppear
+        [detailedViewController viewDidBecomeTop:animated];
+        [detailedViewController viewDidAppearWithiOS5Fix:NO];
+	}
     
-	// viewDidAppear
-	[detailedViewController performSelector:@selector(viewDidAppear:) withObject:(animated ? self : nil) afterDelay:(animated ? 0.41 : 0.01)];
-	
     ////////// update stack shadows ///////////
     [self updateStackShadowsIfNeeded];
 }
@@ -280,61 +459,72 @@
     [self.viewControllers removeLastObject];
     
 	// viewWillDisappear
-	[topViewController viewWillDisappear:(animation == SLIDE_NONE ? NO : YES)];
+    [topViewController viewWillResignTop:(animation == SLIDE_NONE ? NO : YES)];
+	[topViewController viewWillDisappearWithiOS5Fix:(animation == SLIDE_NONE ? NO : YES)];
 	
     if (animation == SLIDE_NONE) {
         [topViewController.view removeFromSuperview];
-        [topViewController release];
-		
 		// viewDidDisappear
-		[topViewController viewDidDisappear:NO];
+        [topViewController viewDidResignTop:NO];
+		[topViewController viewDidDisappearWithiOS5Fix:NO];
 		
-//		only when slide to the right we reframe the second top view
-//        UIViewController * secondTopViewController = [self topViewController];
-//        if (secondTopViewController)
-//            secondTopViewController.view.frame = [self frameForTopView];
+        [self clearContainerForViewController:topViewController];
+        
+        [topViewController release];
+        
+        //		only when slide to the right we reframe the second top view
+        //        UIViewController * secondTopViewController = [self topViewController];
+        //        if (secondTopViewController)
+        //            secondTopViewController.view.frame = [self frameForTopView];
     }
     else {
-        CGRect newRect = topViewController.view.frame;
+        CGRect newRect = [self containerForViewController:topViewController].frame;
         if(animation == SLIDE_VERTICAL) newRect.origin.y = self.view.bounds.size.height;
         else                            newRect.origin.x = self.view.bounds.size.width;
         
         UIViewController * newTopViewController = [self topViewController];
         
-        [UIView beginAnimations:@"slide_out" context:topViewController];
-        [UIView setAnimationDuration:0.4f];
-		[UIView setAnimationDelegate:self];
-		[UIView setAnimationDidStopSelector:@selector(animationDidStop:finished:context:)];
         if (newTopViewController && (animation == SLIDE_HORIZONAL)) {	// only when slide to the right we reframe the new top view
-            newTopViewController.view.frame = [self frameForTopView];
-		}
-        topViewController.view.frame = newRect;
-        [UIView commitAnimations];
-		
+            [newTopViewController viewWillBecomeTop:YES];
+        }
+        
+        [UIView animateWithDuration:animationDuration
+                         animations:^{
+                             if (newTopViewController && (animation == SLIDE_HORIZONAL)) {	// only when slide to the right we reframe the new top view
+                                 [self containerForViewController:newTopViewController].frame = [self frameForTopView];
+                             }
+                             [self containerForViewController:topViewController].frame = newRect;
+                         } completion:^(BOOL finished) {
+                             [topViewController.view removeFromSuperview];
+                             [topViewController viewDidResignTop:YES];
+                             [topViewController viewDidDisappearWithiOS5Fix:YES];
+                             [self clearContainerForViewController:topViewController];
+                             [topViewController release];
+                             
+                             if (newTopViewController && (animation == SLIDE_HORIZONAL)) {	// only when slide to the right we reframe the new top view
+                                 [newTopViewController viewDidBecomeTop:YES];
+                             }
+                         }];
+        
 		// top intermediate view controller
 		// we reframe it here because it might be unloaded during a memory strike;
-
+        
 		if (animation == SLIDE_HORIZONAL) {
 			UIViewController * topIntermediateViewController = [self topIntermediateViewController];
-			[topIntermediateViewController.view setFrame:[self frameForTopIntermediateViews]];
-			[topIntermediateViewController viewWillAppear:NO];
-			[self.view insertSubview:[self topIntermediateViewController].view belowSubview:newTopViewController.view];
-			[topIntermediateViewController viewDidAppear:NO];
+            UIView * container = [self containerForViewController:topIntermediateViewController];
+			[container setFrame:[self frameForTopIntermediateViews]];
+			[topIntermediateViewController viewWillAppearWithiOS5Fix:NO];
+            [topIntermediateViewController viewWillBecomeTopIntermediate:NO];
+			[self.view insertSubview:container belowSubview:[self containerForViewController:newTopViewController]];
+            topIntermediateViewController.view.frame = container.bounds;
+            [container addSubview:topIntermediateViewController.view];
+            [topIntermediateViewController viewDidBecomeTopIntermediate:NO];
+			[topIntermediateViewController viewDidAppearWithiOS5Fix:NO];
 		}
-
     }
     
     ////////// update stack shadows ///////////
     [self updateStackShadowsIfNeeded];
-}
-
-- (void)animationDidStop:(NSString *)animationID finished:(NSNumber *)finished context:(void *)context {
-	if ([animationID isEqualToString:@"slide_out"] && [finished boolValue]) {
-		UIViewController * topViewController = (UIViewController*)context;
-		[topViewController.view removeFromSuperview];
-		[topViewController viewDidDisappear:YES];
-		[topViewController release];
-	}
 }
 
 - (void) popToRootViewControllerWithAnimation:(SLIDE_ANIMATION)animation {

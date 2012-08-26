@@ -13,16 +13,21 @@ typedef enum {
 } SLIDE_ANIMATION;
 
 @interface CXStackNavigationController: UIViewController {
-
+//    CFMutableDictionaryRef containerViews;
 }
 
 @property(nonatomic, retain) NSMutableArray * viewControllers;
-@property(nonatomic, retain) UISwipeGestureRecognizer * swipeGestureRecognizer;
+@property(nonatomic, readonly, retain) UIViewController * topViewController;
+@property(nonatomic, readonly, retain) UIViewController * topIntermediateViewController;
+
+@property(nonatomic, retain) UIColor * shadowColor;
+@property(nonatomic, readwrite) CGFloat shadowRadius;
 
 - (id) initWithRootViewController:(UIViewController *)rootViewController;
 
 - (void) pushViewController:(UIViewController*)detailedViewController animated:(BOOL)animated;
 - (void) pushViewController:(UIViewController*)detailedViewController byDismissingViewControllersBeyond:(UIViewController*)parentViewController animated:(BOOL)animated;
+
 - (void) popViewControllerWithAnimation:(SLIDE_ANIMATION)animation;
 - (void) popToRootViewControllerWithAnimation:(SLIDE_ANIMATION)animation;
 - (void) popToViewController:(UIViewController*)viewController withAnimation:(SLIDE_ANIMATION)animation;

@@ -18,8 +18,19 @@
 #pragma mark -
 #pragma mark Application lifecycle
 
+
+void uncaughtExceptionHandler(NSException *exception);
+
+void uncaughtExceptionHandler(NSException *exception) {
+    NSLog(@"CRASH: %@", exception);
+    NSLog(@"Stack Trace: %@", [exception callStackSymbols]);
+    // Internal error reporting
+}
+
+
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {    
-    
+    NSSetUncaughtExceptionHandler(&uncaughtExceptionHandler);
+
     // Override point for customization after application launch.
     MyViewController * aViewController = [[MyViewController alloc] initWithStyle:UITableViewStylePlain];
 	CXStackNavigationController * stackController = [[CXStackNavigationController alloc] initWithRootViewController:aViewController];

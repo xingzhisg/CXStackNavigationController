@@ -25,4 +25,66 @@ static char SLIDE_KEY;
     return (CXStackNavigationController *)objc_getAssociatedObject(self, &SLIDE_KEY);
 }
 
+- (UIViewController*) swipeToRightTest {
+    if (self.modalViewController) return [self.modalViewController swipeToRightTest];
+    
+    return self;
+}
+
+- (void) handleSwipeToRightEvent {
+    // do nothing by default;
+}
+
+- (void) viewWillBecomeTop:(BOOL)animated {
+
+}
+
+- (void) viewDidBecomeTop:(BOOL)animated {
+
+}
+
+- (void) viewWillResignTop:(BOOL)animated {
+
+}
+
+- (void) viewDidResignTop:(BOOL)animated {
+
+}
+
+- (void) viewWillBecomeTopIntermediate:(BOOL)animated {
+
+}
+
+- (void) viewDidBecomeTopIntermediate:(BOOL)animated {
+
+}
+
+- (void) viewWillResignTopIntermediate:(BOOL)animated {
+
+}
+
+- (void) viewDidResignTopIntermediate:(BOOL)animated {
+
+}
+
+- (void) viewWillAppearWithiOS5Fix:(BOOL)animated {
+    if (([[[UIDevice currentDevice] systemVersion] floatValue] >= 5.0)) return;
+    [self viewWillAppear:animated];
+}
+
+- (void) viewWillDisappearWithiOS5Fix:(BOOL)animated {
+    if (([[[UIDevice currentDevice] systemVersion] floatValue] >= 5.0)) return;
+    [self viewWillDisappear:animated];
+}
+
+- (void) viewDidAppearWithiOS5Fix:(BOOL)animated {
+    if (([[[UIDevice currentDevice] systemVersion] floatValue] >= 5.0)) return;
+    [self viewDidAppear:animated];
+}
+
+- (void) viewDidDisappearWithiOS5Fix:(BOOL)animated {
+    if (([[[UIDevice currentDevice] systemVersion] floatValue] >= 5.0)) return;
+    [self viewDidDisappear:animated];
+}
+
 @end
